@@ -1,0 +1,15 @@
+.venv/
+.models/
+.indexes/
+__pycache__/
+*.pyc
+server.log
+.DS_Store
+scenes/
+*.tar
+index_data*.json
+index_data*.npy
+*.duckdb
+*.duckdb.wal
+.env
+.env.*

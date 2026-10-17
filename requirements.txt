@@ -1,0 +1,10 @@
+flask
+duckdb
+numpy>=1.26,<2.6
+pygltflib
+sentence-transformers
+transformers>=5
+torch
+torchvision
+pillow
+numba>=0.61

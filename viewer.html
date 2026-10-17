@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>3D Spatial Memory — LiDAR Room Search</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; --panel: #151a20; --surface: #1b222a; --line: #303a45; --line-soft: #262f39; --text: #dce3e9; --muted: #8c99a6; --quiet: #80919f; --accent: #d6b077; --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a0a0b; color: var(--text); font: 11px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
+  button, input, select { font: inherit; }
+  button, select, input { outline: none; }
+  button:focus-visible, select:focus-visible, input:focus-visible, .res:focus-visible, summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  #canvas { position: absolute; inset: 0; width: 100vw; height: 100vh; z-index: 0; outline: none; }
+  .topbar { position: absolute; inset: 0 0 auto; height: 42px; z-index: 20; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--line); background: #11161cf5; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .brand-mark { width: 21px; height: 24px; color: var(--accent); }
+  h1 { margin: 0; font: 600 11px/1 var(--mono); letter-spacing: 1.35px; }
+  .brand-divider { width: 1px; height: 15px; background: var(--line); }
+  .workspace-label { font: 9px var(--mono); letter-spacing: 1px; color: var(--muted); }
+  .topbar-meta { margin-left: auto; display: flex; align-items: center; gap: 18px; font: 9px var(--mono); letter-spacing: .5px; color: var(--muted); }
+  .local-tag { padding: 3px 6px; border: 1px solid #3b454f; color: #a6b3bf; font-size: 8px; letter-spacing: .9px; }
+  #viewerState { display: flex; align-items: center; gap: 6px; min-width: 66px; }
+  #viewerState::before { content: ''; width: 4px; height: 4px; background: var(--accent); }
+  #viewerState[data-state=ready]::before { background: #99bca9; }
+  #viewerState[data-state=error]::before { background: #d78a79; }
+  #ui { position: absolute; top: 54px; bottom: 40px; left: 12px; z-index: 10; width: 292px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 2px; background: #151a20fa; box-shadow: 0 8px 30px #0003; overflow: hidden; }
+  .console-heading { display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 0 12px; background: #1a2027; border-bottom: 1px solid var(--line); font: 9px var(--mono); letter-spacing: 1px; }
+  .console-heading span:first-child { color: #bdc9d3; }
+  #sourceState { color: var(--quiet); font-size: 8px; letter-spacing: .7px; }
+  #sourceState[data-state=indexed] { color: #a4c3b2; }
+  .console-body { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; scrollbar-gutter: stable; }
+  .control-section { padding: 7px 11px; border-bottom: 1px solid var(--line-soft); flex-shrink: 0; }
+  .section-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 5px; color: #aab8c4; font: 500 9px var(--mono); letter-spacing: .9px; }
+  .section-heading .ordinal { display: inline-block; width: 21px; color: #576674; }
+  .section-heading .section-note { color: #647483; font-size: 8px; letter-spacing: .4px; }
+  .source-grid { display: grid; grid-template-columns: minmax(0,1fr) 47px; gap: 7px; }
+  label { display: block; font: 8px var(--mono); letter-spacing: .6px; color: var(--quiet); margin-bottom: 4px; text-transform: uppercase; }
+  input[type=text], select { width: 100%; height: 27px; padding: 4px 7px; border: 1px solid #35414d; border-radius: 2px; background: #10151b; color: #cbd6df; font-size: 10px; }
+  select { font-family: var(--mono); padding-right: 3px; cursor: pointer; }
+  input[type=text] { height: 29px; font-size: 11px; }
+  input::placeholder { color: #5a6b79; }
+  input:hover, select:hover { border-color: #566779; }
+  .row { display: flex; gap: 6px; }
+  .row > * { flex: 1; min-width: 0; }
+  .query-actions { display: grid; grid-template-columns: minmax(0,1fr) 45px 27px; gap: 5px; }
+  button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 27px; padding: 4px 7px; border: 1px solid #766347; border-radius: 2px; background: #b89560; color: #15191e; font-size: 10px; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s; }
+  button:hover { background: #d2ae76; border-color: #d2ae76; }
+  button.secondary { border-color: #35414e; background: #202831; color: #adbcc9; font-weight: 500; }
+  button.secondary:hover { background: #2b3540; border-color: #536374; color: #e1e8ef; }
+  button:disabled { opacity: .38; cursor: default; }
+  button[aria-pressed=true] { background: #263139; border-color: #5b716e; color: #c0d7cd; }
+  button.toggle { justify-content: space-between; font-size: 9px; gap: 3px; padding-inline: 6px; }
+  button.toggle::after { content: 'OFF'; color: #62717f; font: 8px var(--mono); letter-spacing: .3px; }
+  button.toggle[aria-pressed=true]::after { content: 'ON'; color: #b1cbbf; }
+  .query-actions button { height: 29px; }
+  .query-actions #clearBtn { font: 16px/1 var(--mono); color: #8ea0ad; padding: 0; }
+  .query-actions #searchBtn { padding-inline: 5px; font-size: 9px; }
+  .microcopy { color: #7e8e9b; font-size: 9px; line-height: 1.5; margin-top: 6px; }
+  .nav-controls .toggle { flex: 1.05; padding-inline: 8px; font-size: 10px; }
+  .nav-controls #homeBtn { flex: 1; }
+  .key-guide { display: none; }
+  .index-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; border: 1px solid var(--line-soft); margin-bottom: 7px; background: #11171d; }
+  .index-stat { padding: 5px 7px; }
+  .index-stat + .index-stat { border-left: 1px solid var(--line-soft); }
+  .index-stat strong { display: block; color: #c0ccd6; font: 11px/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+  .index-stat span { display: block; font: 7px/1.7 var(--mono); color: #8597a6; letter-spacing: .7px; }
+  .index-controls { display: grid; grid-template-columns: 67px 1fr; gap: 6px; }
+  .index-controls select { font-size: 9px; }
+  #reindexBtn { font-size: 9px; border-color: #4c4941; color: #cfb78e; background: #272822; }
+  #reindexBtn:hover { background: #33332a; border-color: #8a7556; }
+  #indexProgress { appearance: none; width: 100%; display: block; height: 2px; border: 0; margin: 8px 0 0; background: #303a44; }
+  #indexProgress::-webkit-progress-bar { background: #303a44; }
+  #indexProgress::-webkit-progress-value { background: var(--accent); }
+  #indexProgress::-moz-progress-bar { background: var(--accent); }
+  #indexStatus { color: #b7a584; font: 9px/1.5 var(--mono); margin-top: 6px; }
+  #indexStatus:empty { display: none; }
+  .capabilities { margin-top: 6px; color: #81909c; font-size: 9px; }
+  .capabilities summary { cursor: pointer; color: #778b9b; font: 8px/1.5 var(--mono); letter-spacing: .5px; }
+  #indexInfo { padding: 6px 0 0; color: #8a9aa7; font-size: 9px; line-height: 1.6; }
+  .results-section { display: flex; flex-direction: column; flex: 1; min-height: 118px; border-bottom: 0; padding-bottom: 0; }
+  #resultCount { color: #b4c4d1; padding: 1px 4px; border: 1px solid #3a4855; font: 8px var(--mono); letter-spacing: 0; }
+  #status { font: 9px/1.5 var(--mono); color: #8b9daa; padding-bottom: 7px; white-space: normal; overflow-wrap: anywhere; }
+  #results { flex: 1; min-height: 0; max-height: 340px; overflow-y: auto; margin-inline: -11px; }
+  #results:empty::after { content: 'NO MATCHES / AWAITING QUERY'; display: block; color: #4e626f; padding: 10px 11px 15px; font: 8px var(--mono); letter-spacing: .5px; }
+  .results-table-heading { display: flex; justify-content: space-between; padding: 5px 11px; font: 7px var(--mono); letter-spacing: .7px; color: #8b9ca9; border-block: 1px solid var(--line-soft); }
+  .res { padding: 7px 11px 7px 9px; border-bottom: 1px solid var(--line-soft); border-left: 2px solid transparent; cursor: pointer; }
+  .res:hover { background: #202b35; }
+  .res.active { background: #25333f; border-left-color: #b9cad5; }
+  .res-top { display: flex; align-items: center; gap: 7px; font-size: 10px; }
+  .rank { flex: 0 0 17px; font: 10px var(--mono); }
+  .res-title { color: #d1dce5; font-weight: 500; }
+  .res-title small { color: #8a9aa6; font: 8px var(--mono); margin-left: 4px; }
+  .sim { margin-left: auto; font: 9px var(--mono); color: #a2b3c1; font-variant-numeric: tabular-nums; }
+  .res-meta { display: flex; justify-content: space-between; margin-top: 3px; font: 8px/1.6 var(--mono); color: #97abb9; }
+  .loc { color: #92a99f; font-variant-numeric: tabular-nums; }
+  .desc { color: #7e929f; font-size: 9px; line-height: 1.5; margin-top: 2px; }
+  .memory-image { display: block; width: 100%; height: 64px; object-fit: contain; background: #10151b; margin-top: 6px; border: 1px solid var(--line-soft); }
+  .pose { color: #a5b5aa; font: 8px/1.6 var(--mono); margin-top: 4px; }
+  #viewPose { color: #a5b5aa; font: 8px/1.5 var(--mono); margin-top: 4px; }
+  .viewport-meta { position: absolute; top: 60px; left: 324px; padding: 8px 10px; border: 1px solid #303a45; background: #11161ce8; pointer-events: none; z-index: 4; }
+  .viewport-label { color: #9fadb5; font: 8px var(--mono); letter-spacing: 1.1px; margin-bottom: 5px; text-shadow: 0 1px 4px #000; }
+  #activeSceneName { color: #d5dce1; font: 11px var(--mono); text-shadow: 0 1px 5px #000; }
+  #sceneExtent { margin-top: 4px; color: #889aa5; font: 9px var(--mono); text-shadow: 0 1px 4px #000; }
+  .footer { position: absolute; inset: auto 0 0; height: 28px; z-index: 15; display: flex; align-items: center; border-top: 1px solid var(--line); background: #11161cf5; padding: 0 14px; gap: 16px; }
+  .footer-label { color: #a2b09b; font: 8px var(--mono); letter-spacing: .7px; border-right: 1px solid var(--line); padding-right: 14px; flex-shrink: 0; }
+  #navHint { flex: 1; min-width: 0; color: #80929f; font: 9px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coordinate-system { font: 8px var(--mono); color: #8c9ea9; letter-spacing: .5px; flex-shrink: 0; }
+  .coordinate-system b { font-weight: 400; color: #bdc9d2; }
+  a { color: #b0c0cc; text-decoration: none; }
+  a:hover { color: var(--accent); }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3c4955; border-radius: 0; }
+  @media (max-width: 680px) { .workspace-label, .brand-divider, .scene-count { display: none; } .topbar { padding-inline: 12px; } .topbar-meta { gap: 10px; } #ui { left: 8px; top: 50px; bottom: 36px; width: min(276px, calc(100vw - 16px)); } .viewport-meta { display: none; } .coordinate-system { display: none; } .footer { padding-inline: 10px; gap: 10px; height: 26px; } }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0" aria-label="3D room. Enable Walk mode to navigate with the keyboard."></canvas>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 28" fill="none" aria-hidden="true"><path d="M12 1.5 22.5 7.5v13L12 26.5 1.5 20.5v-13L12 1.5Z" stroke="currentColor"/><path d="m1.5 7.5 10.5 6 10.5-6M12 13.5v13m0-13L6.7 10.5V4.6M12 13.5l5.3 3v7" stroke="currentColor"/></svg>
+    <h1>SPATIAL MEMORY</h1>
+  </div>
+  <span class="brand-divider"></span><span class="workspace-label">ROOM EXPLORER</span>
+  <div class="topbar-meta"><span class="scene-count"><span id="sceneCount">—</span> SCENES</span><span class="local-tag">LOCAL</span><span id="viewerState" data-state="loading">INITIALIZING</span></div>
+</header>
+<aside id="ui" aria-label="Scene controls">
+  <div class="console-heading"><span>EXPLORER</span><span id="sourceState">NO SOURCE</span></div>
+  <div class="console-body">
+    <section class="control-section">
+      <h2 class="section-heading"><span><span class="ordinal">01</span>SOURCE</span><span class="section-note">GLB</span></h2>
+      <div class="source-grid"><div><label for="scene">Active scene</label><select id="scene"></select></div><div><label for="topk">Top K</label><select id="topk"><option>5</option><option>8</option><option>12</option><option>20</option></select></div></div>
+    </section>
+    <section class="control-section">
+      <h2 class="section-heading"><span><span class="ordinal">02</span>QUERY</span><span class="section-note">MEMORY SEARCH</span></h2>
+      <div class="query-actions"><input type="text" id="q" aria-label="Search spatial memory" placeholder="painting on wall, bed, floor…" value="painting on the wall"><button id="searchBtn" aria-label="Run query" title="Run query · Enter">Run</button><button class="secondary" id="clearBtn" aria-label="Clear highlights" title="Clear highlights">×</button></div>
+      <div class="microcopy">Objects, wall art and surfaces · one search</div>
+    </section>
+    <section class="control-section">
+      <h2 class="section-heading"><span><span class="ordinal">03</span>DISPLAY</span><span class="section-note">LAYERS</span></h2>
+      <div class="row"><button class="secondary toggle" id="heatmapBtn" aria-pressed="true">Heatmap</button><button class="secondary toggle" id="boxesBtn" aria-pressed="false">Bounds</button><button class="secondary toggle" id="dimBtn" aria-pressed="false">Dim scan</button></div>
+    </section>
+    <section class="control-section">
+      <h2 class="section-heading"><span><span class="ordinal">04</span>NAVIGATION</span><span class="section-note">V / MODE</span></h2>
+      <div class="row nav-controls"><button class="secondary toggle" id="walkBtn" aria-pressed="false" disabled>Walk</button><button class="secondary" id="homeBtn" disabled>Overview</button></div>
+      <div class="key-guide">WASD MOVE / Q E HEIGHT / SHIFT BOOST</div>
+    </section>
+    <section class="control-section">
+      <h2 class="section-heading"><span><span class="ordinal">05</span>MEMORY INDEX</span><span class="section-note">WALKTHROUGH</span></h2>
+      <div class="index-stats"><div class="index-stat"><strong id="patchCount">—</strong><span>PATCHES</span></div><div class="index-stat"><strong id="triangleCount">—</strong><span>TRIANGLES</span></div><div class="index-stat"><strong id="memoryCount">—</strong><span>MEMORIES</span></div></div>
+      <div class="index-controls"><select id="patchSize" aria-label="Surface patch size"><option value="0.25">0.25 m</option><option value="0.5" selected>0.5 m</option><option value="1">1 m</option></select><button class="secondary" id="reindexBtn" title="Walk the entire GLB and rebuild visual and surface memories" disabled>Rebuild memory</button></div>
+      <progress id="indexProgress" max="100" value="0" hidden aria-label="Index rebuild progress"></progress>
+      <div id="indexStatus" role="status"></div>
+      <details class="capabilities"><summary>INDEX NOTES</summary><div id="indexInfo">Eye-level observations registered to the scan.</div><div class="microcopy"><a href="https://huggingface.co/google/siglip2-base-patch16-224" target="_blank" rel="noopener noreferrer">SigLIP 2</a> / EmbeddingGemma / DuckDB</div></details>
+    </section>
+    <section class="control-section results-section">
+      <h2 class="section-heading"><span><span class="ordinal">06</span>MATCHES</span><span id="resultCount">00</span></h2>
+      <div id="status" role="status">Loading scenes…</div>
+      <div id="results"></div>
+    </section>
+  </div>
+</aside>
+<div class="viewport-meta"><div class="viewport-label">SCENE / WORLD SPACE</div><div id="activeSceneName">Awaiting source</div><div id="sceneExtent">—</div><div id="viewPose"></div></div>
+<footer class="footer"><span class="footer-label">3D VIEW</span><div id="navHint">Orbit: drag to rotate · scroll to zoom · V to walk</div><span class="coordinate-system"><b>Z</b> UP &nbsp; / &nbsp; METERS</span></footer>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.162.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.162.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const BASE = window.location.origin;
+let sceneSel, qInput, topkSel, searchBtn, clearBtn, statusEl, resultsEl;
+let renderer, scene3d, camera, controls, loader;
+let glbScene = null;
+const glbMeshMaterials = [];
+let sceneLoadId = 0;
+let searchId = 0;
+const sceneFiles = new Map();
+const highlightObjects = [];
+let labelSprites = [];
+let dimOriginal = false;
+const heatmapObjects = [];
+let heatmapVisible = true;
+let boxesVisible = false;
+const matchedUnits = [];
+let walkMode = false;
+let walkYaw = 0, walkPitch = 0;
+const walkKeys = new Set();
+const frameClock = new THREE.Clock();
+let walkSpawn = null;
+let indexJob = null, indexPollTimer = null;
+let indexStatusId = 0;
+const completedIndexJobs = new Set();
+
+const sceneCenter = new THREE.Vector3();
+const sceneBounds = new THREE.Box3();
+
+function $(id){ return document.getElementById(id); }
+
+function updateToggle(id, label, on){
+  const button = $(id);
+  button.textContent = label;
+  button.setAttribute('aria-pressed', String(on));
+  button.setAttribute('aria-label', `${label}: ${on ? 'on' : 'off'}`);
+}
+
+function setViewerState(state, label){
+  $('viewerState').textContent = label;
+  $('viewerState').setAttribute('data-state', state);
+}
+
+async function init(){
+  sceneSel = $('scene'); qInput = $('q'); topkSel = $('topk');
+  searchBtn = $('searchBtn'); clearBtn = $('clearBtn');
+  statusEl = $('status'); resultsEl = $('results');
+
+  // scene list
+  searchBtn.disabled = true;
+  await refreshScenes();
+
+  renderer = new THREE.WebGLRenderer({ canvas: $('canvas'), antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.05, 2000);
+  // HM3D geometry and the search index both use Z as the vertical axis.
+  camera.up.set(0, 0, 1);
+  scene3d = new THREE.Scene();
+  scene3d.background = new THREE.Color(0x0a0a0b);
+  scene3d.fog = new THREE.FogExp2(0x0a0a0b, 0.015);
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1.0);
+  hemi.position.set(0, 0, 1);
+  scene3d.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.5);
+  dir.position.set(20, 20, 40);
+  dir.castShadow = true;
+  scene3d.add(dir);
+  scene3d.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+  // axes helper for orientation
+  const axes = new THREE.AxesHelper(5);
+  scene3d.add(axes);
+  const grid = new THREE.GridHelper(200, 40, 0x444444, 0x222222);
+  grid.rotation.x = Math.PI / 2;
+  scene3d.add(grid);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.minDistance = 0.1;
+  controls.maxDistance = 500;
+
+  loader = new GLTFLoader();
+
+  window.addEventListener('resize', onResize);
+  searchBtn.addEventListener('click', doSearch);
+  clearBtn.addEventListener('click', ()=>clearHighlights());
+  const dimBtnEl = $('dimBtn');
+  if(dimBtnEl) dimBtnEl.addEventListener('click', toggleDim);
+  qInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSearch(); });
+  sceneSel.addEventListener('change', ()=>{ loadScene(sceneSel.value); refreshIndexStatus(); });
+  $('reindexBtn').addEventListener('click', startReindex);
+  $('heatmapBtn').addEventListener('click', ()=>{
+    heatmapVisible = !heatmapVisible;
+    heatmapObjects.forEach(o=>o.visible = heatmapVisible);
+    updateToggle('heatmapBtn', 'Heatmap', heatmapVisible);
+  });
+  $('boxesBtn').addEventListener('click', ()=>{
+    boxesVisible = !boxesVisible;
+    highlightObjects.forEach(o=>o.visible = boxesVisible);
+    updateToggle('boxesBtn', 'Bounds', boxesVisible);
+  });
+  $('walkBtn').addEventListener('click', ()=>setWalkMode(!walkMode));
+  $('homeBtn').addEventListener('click', resetView);
+  setupWalkControls();
+  onResize();
+
+  animate();
+  await loadScene(sceneSel.value);
+  await refreshIndexStatus();
+}
+
+function escapeHtml(t){ return t.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function refreshScenes(){
+  const selected = sceneSel.value;
+  const response = await fetch(`${BASE}/scenes`);
+  if(!response.ok) throw new Error(`Could not list scenes (${response.status}).`);
+  const scenes = await response.json();
+  $('sceneCount').textContent = String(scenes.length).padStart(2, '0');
+  sceneFiles.clear();
+  scenes.forEach(entry=>sceneFiles.set(entry.name, entry));
+  sceneSel.innerHTML = scenes.map(entry=>`<option value="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}${entry.indexed ? ' (indexed)' : ''}</option>`).join('');
+  sceneSel.value = sceneFiles.has(selected) ? selected : ((scenes.find(entry=>entry.index?.visual_semantics) || scenes.find(entry=>entry.indexed) || scenes[0])?.name || '');
+}
+
+function showIndexInfo(info){
+  $('patchCount').textContent = info?.unit_count?.toLocaleString() ?? '—';
+  $('triangleCount').textContent = info?.source_triangle_count?.toLocaleString() ?? '—';
+  $('memoryCount').textContent = info?.observation_count?.toLocaleString() ?? '—';
+  $('sourceState').textContent = info?.visual_semantics ? 'MEMORY READY' : (info ? 'INDEXED' : 'UNINDEXED');
+  $('sourceState').setAttribute('data-state', info ? 'indexed' : 'none');
+  const details = info ? `${info.unit_count.toLocaleString()} surface patches` +
+    (info.source_triangle_count ? ` · ${info.source_triangle_count.toLocaleString()} source triangles` : '') : 'No index for this GLB';
+  $('indexInfo').textContent = details + (info?.visual_semantics
+    ? ` · ${info.observation_count.toLocaleString()} visual observations from ${info.walkthrough_view_count} eye-level views. ${info.observed_patch_count.toLocaleString()} patches seen. Images, camera poses and depth share GLB world coordinates.`
+    : '. Rebuild memory to record eye-level visual observations.');
+  if(info && info.geometry_version !== 2){
+    $('indexInfo').textContent += ' Reindex to replace the old cell boxes with fitted surface bounds.';
+  }
+}
+
+async function startReindex(){
+  $('reindexBtn').disabled = true;
+  $('indexStatus').textContent = 'Starting walkthrough and memory rebuild …';
+  try {
+    const response = await fetch(`${BASE}/reindex`, {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scene:sceneSel.value, voxel_size:Number($('patchSize').value)})});
+    const data = await response.json();
+    if(!response.ok) throw new Error(data.error || 'Could not start indexing.');
+    indexJob = data.job;
+    await refreshIndexStatus();
+  } catch(error){
+    $('indexStatus').textContent = 'Indexing error: ' + error.message;
+    $('reindexBtn').disabled = false;
+  }
+}
+
+async function refreshIndexStatus(){
+  clearTimeout(indexPollTimer);
+  const requestId = ++indexStatusId;
+  const selected = sceneSel.value;
+  try {
+    const response = await fetch(`${BASE}/index/status?scene=${encodeURIComponent(selected)}`);
+    const data = await response.json();
+    if(requestId !== indexStatusId) return;
+    if(!response.ok) throw new Error(data.error || 'Could not read index status.');
+    indexJob = data.job;
+    if(selected === sceneSel.value) showIndexInfo(data.index);
+    const running = indexJob?.status === 'running';
+    $('reindexBtn').disabled = running || !sceneSel.value;
+    $('patchSize').disabled = running;
+    $('indexProgress').hidden = !running;
+    if(indexJob){
+      $('indexProgress').value = indexJob.progress;
+      $('indexStatus').textContent = indexJob.status === 'complete'
+        ? (indexJob.scene === selected ? 'Walkthrough memory ready' : `Rebuilt / ${indexJob.scene}`)
+        : `${indexJob.scene}: ${indexJob.message}` + (running ? ` (${indexJob.progress}%)` : '');
+      $('indexStatus').title = `${indexJob.scene}: ${indexJob.message}`;
+    } else {
+      $('indexStatus').textContent = '';
+    }
+    if(indexJob?.status === 'complete' && !completedIndexJobs.has(indexJob.id)){
+      completedIndexJobs.add(indexJob.id);
+      await refreshScenes();
+      if(sceneSel.value === indexJob.scene){
+        clearHighlights();
+        searchBtn.disabled = !glbScene;
+        showIndexInfo(sceneFiles.get(sceneSel.value)?.index);
+        statusEl.textContent = 'Memory rebuilt. Search for an object, wall art or a surface.';
+      }
+    }
+    if(running) indexPollTimer = setTimeout(refreshIndexStatus, 1000);
+  } catch(error){
+    if(requestId !== indexStatusId) return;
+    $('indexStatus').textContent = 'Index status error: ' + error.message;
+    $('reindexBtn').disabled = false;
+    $('patchSize').disabled = false;
+    if(indexJob?.status === 'running') indexPollTimer = setTimeout(refreshIndexStatus, 2000);
+  }
+}
+
+async function loadScene(name){
+  const loadId = ++sceneLoadId;
+  setViewerState('loading', 'LOADING');
+  $('activeSceneName').textContent = name || 'Awaiting source';
+  $('sceneExtent').textContent = 'Loading world bounds…';
+  $('sourceState').textContent = 'LOADING';
+  $('sourceState').setAttribute('data-state', 'loading');
+  setWalkMode(false);
+  ++searchId; // Ignore results from a search in the previous scene.
+  searchBtn.disabled = true;
+  $('walkBtn').disabled = true;
+  $('homeBtn').disabled = true;
+  clearHighlights();
+  glbMeshMaterials.length = 0;
+  if(glbScene){ scene3d.remove(glbScene); disposeModel(glbScene); glbScene = null; }
+  walkSpawn = null;
+  $('viewPose').textContent = '';
+  sceneBounds.makeEmpty();
+
+  if(!name){ statusEl.textContent = 'No GLB scenes found.'; setViewerState('error', 'NO DATA'); return; }
+  statusEl.textContent = `Loading ${name} …`;
+  try {
+    const entry = sceneFiles.get(name);
+    if(!entry) throw new Error('Unknown scene.');
+    const gltf = await loader.loadAsync(entry.glb_url, xhr=>{
+      if(loadId !== sceneLoadId) return;
+      const progress = xhr.total > 0 ? ` ${Math.round(xhr.loaded/xhr.total*100)}%` : '';
+      statusEl.textContent = `Loading ${name} …${progress}`;
+    });
+    if(loadId !== sceneLoadId){ disposeModel(gltf.scene); return; }
+    glbScene = gltf.scene;
+    scene3d.add(glbScene);
+    glbScene.traverse(o=>{
+      if(!o.isMesh) return;
+      o.castShadow = true; o.receiveShadow = true;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(m=>glbMeshMaterials.push({mesh: o, mat: m,
+        origOpacity: m.opacity, origTransparent: m.transparent}));
+    });
+    sceneBounds.setFromObject(glbScene);
+    sceneBounds.getCenter(sceneCenter);
+    const size = sceneBounds.getSize(new THREE.Vector3());
+    $('sceneExtent').textContent = `${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} m`;
+    setViewerState('ready', 'READY');
+    resetView();
+    searchBtn.disabled = !entry.indexed;
+    $('reindexBtn').disabled = indexJob?.status === 'running';
+    showIndexInfo(entry.index);
+    $('walkBtn').disabled = false;
+    $('homeBtn').disabled = false;
+    statusEl.textContent = `Loaded ${name} — bounds ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)} m` +
+      (entry.indexed ? '' : '. No search index for this scene.');
+  } catch(err){
+    if(loadId !== sceneLoadId) return;
+    console.error('GLB load failed:', err);
+    setViewerState('error', 'LOAD ERROR');
+    statusEl.textContent = `Failed to load ${name}: ${err.message}`;
+  }
+}
+
+function disposeModel(root){
+  const resources = new Set();
+  root.traverse(o=>{
+    if(o.geometry) resources.add(o.geometry);
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.filter(Boolean).forEach(m=>{
+      resources.add(m);
+      Object.values(m).forEach(value=>{ if(value?.isTexture) resources.add(value); });
+    });
+  });
+  resources.forEach(resource=>resource.dispose());
+}
+
+function resetView(){
+  if(!glbScene) return;
+  setWalkMode(false);
+  camera.fov = 45;
+  camera.updateProjectionMatrix();
+  $('viewPose').textContent = '';
+  const size = sceneBounds.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z, 1);
+  camera.position.copy(sceneCenter).add(new THREE.Vector3(maxDim*0.9, -maxDim*0.9, maxDim*0.7));
+  camera.lookAt(sceneCenter);
+  controls.target.copy(sceneCenter);
+  controls.maxDistance = maxDim * 6;
+  controls.update();
+}
+
+function syncWalkLook(){
+  const direction = camera.getWorldDirection(new THREE.Vector3());
+  walkYaw = Math.atan2(direction.y, direction.x);
+  walkPitch = Math.asin(THREE.MathUtils.clamp(direction.z, -1, 1));
+}
+
+function findWalkSpawn(){
+  if(walkSpawn) return walkSpawn;
+  const size = sceneBounds.getSize(new THREE.Vector3());
+  const ray = new THREE.Raycaster();
+  const normalMatrix = new THREE.Matrix3();
+  const up = new THREE.Vector3(0, 0, 1), down = up.clone().negate();
+  let best = null;
+  // Prefer an open floor patch rather than the center of the bounding box,
+  // which can be inside a wall, furniture, or a stairwell.
+  for(const fx of [0, -0.25, 0.25]) for(const fy of [0, -0.25, 0.25]){
+    const origin = new THREE.Vector3(sceneCenter.x+size.x*fx, sceneCenter.y+size.y*fy, sceneBounds.max.z+1);
+    ray.set(origin, down); ray.far = Infinity;
+    const floors = ray.intersectObject(glbScene, true).filter(hit=>{
+      if(!hit.face) return false;
+      normalMatrix.getNormalMatrix(hit.object.matrixWorld);
+      return hit.face.normal.clone().applyNormalMatrix(normalMatrix).z > 0.8;
+    });
+    if(!floors.length) continue;
+    const floor = floors.reduce((a,b)=>a.point.z<b.point.z ? a : b);
+    const position = floor.point.clone().addScaledVector(up, 1.65);
+    ray.set(floor.point.clone().addScaledVector(up, 0.1), up); ray.far = 1.6;
+    if(ray.intersectObject(glbScene, true).length) continue;
+    let clearance = 3, longest = 0, yaw = 0;
+    for(let i=0; i<8; i++){
+      const angle = i*Math.PI/4;
+      ray.set(position, new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0)); ray.far = 3;
+      const distance = ray.intersectObject(glbScene, true)[0]?.distance ?? 3;
+      clearance = Math.min(clearance, distance);
+      if(distance>longest){ longest=distance; yaw=angle; }
+    }
+    if(clearance<0.4) continue;
+    const score = clearance+longest*0.15-Math.abs(fx)*0.1-Math.abs(fy)*0.1;
+    if(!best || score>best.score) best = {position, yaw, score};
+  }
+  walkSpawn = best || {position: new THREE.Vector3(sceneCenter.x, sceneCenter.y, sceneBounds.min.z+1.65), yaw:0};
+  return walkSpawn;
+}
+
+function setWalkMode(on){
+  if(on && !glbScene) return;
+  walkMode = on;
+  walkKeys.clear();
+  controls.enabled = !on;
+  if(on){
+    // Enter the scan at eye level if the orbit camera is still outside it.
+    if(!sceneBounds.containsPoint(camera.position)){
+      const spawn = findWalkSpawn();
+      camera.position.copy(spawn.position);
+      camera.lookAt(spawn.position.clone().add(new THREE.Vector3(Math.cos(spawn.yaw), Math.sin(spawn.yaw), 0)));
+    }
+    syncWalkLook();
+    renderer.domElement.focus({preventScroll: true});
+  } else {
+    if(document.pointerLockElement === renderer.domElement) document.exitPointerLock();
+    const direction = camera.getWorldDirection(new THREE.Vector3());
+    controls.target.copy(camera.position).addScaledVector(direction, 3);
+  }
+  updateToggle('walkBtn', 'Walk', on);
+  $('navHint').textContent = on
+    ? 'Walk: WASD move · Q/E down/up · Shift faster · arrows move/turn · click or drag view to look · Esc to orbit'
+    : 'Orbit: drag to rotate · scroll to zoom · V to walk';
+}
+
+function setupWalkControls(){
+  const canvas = renderer.domElement;
+  const movementKeys = new Set(['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE',
+    'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight']);
+  window.addEventListener('keydown', event=>{
+    if(event.target.closest?.('input, textarea, select, [contenteditable="true"]') || event.ctrlKey || event.metaKey || event.altKey) return;
+    if(event.code === 'KeyV' && !event.repeat){ event.preventDefault(); setWalkMode(!walkMode); return; }
+    if(event.code === 'Escape' && walkMode){ setWalkMode(false); return; }
+    if(walkMode && movementKeys.has(event.code)){
+      event.preventDefault();
+      walkKeys.add(event.code);
+    }
+  });
+  window.addEventListener('keyup', event=>walkKeys.delete(event.code));
+  window.addEventListener('blur', ()=>walkKeys.clear());
+  document.addEventListener('visibilitychange', ()=>walkKeys.clear());
+  canvas.addEventListener('click', ()=>{
+    if(!walkMode || document.pointerLockElement === canvas || !canvas.requestPointerLock) return;
+    try {
+      const request = canvas.requestPointerLock();
+      request?.catch(()=>{ $('navHint').textContent = 'Walk: WASD · Q/E down/up · Shift faster · drag the view to look · Esc to orbit'; });
+    } catch(err){ /* Drag-to-look remains available if pointer lock is unavailable. */ }
+  });
+  document.addEventListener('pointerlockchange', ()=>{
+    if(walkMode && document.pointerLockElement !== canvas) setWalkMode(false);
+  });
+  document.addEventListener('mousemove', event=>{
+    if(!walkMode || (document.pointerLockElement !== canvas && !(event.target === canvas && (event.buttons & 1)))) return;
+    walkYaw -= event.movementX*0.002;
+    walkPitch = THREE.MathUtils.clamp(walkPitch-event.movementY*0.002, -Math.PI/2+0.02, Math.PI/2-0.02);
+  });
+}
+
+function updateWalk(delta){
+  const held = code=>walkKeys.has(code) ? 1 : 0;
+  walkYaw += (held('ArrowLeft')-held('ArrowRight'))*delta*1.5;
+  const forward = held('KeyW')+held('ArrowUp')-held('KeyS')-held('ArrowDown');
+  const sideways = held('KeyD')-held('KeyA');
+  const vertical = held('KeyE')-held('KeyQ');
+  const movement = new THREE.Vector3(
+    Math.cos(walkYaw)*forward+Math.sin(walkYaw)*sideways,
+    Math.sin(walkYaw)*forward-Math.cos(walkYaw)*sideways,
+    vertical
+  );
+  const speed = held('ShiftLeft') || held('ShiftRight') ? 5 : 2;
+  if(movement.lengthSq()>0) camera.position.addScaledVector(movement.normalize(), speed*delta);
+  const direction = new THREE.Vector3(
+    Math.cos(walkYaw)*Math.cos(walkPitch),
+    Math.sin(walkYaw)*Math.cos(walkPitch),
+    Math.sin(walkPitch)
+  );
+  camera.lookAt(new THREE.Vector3().copy(camera.position).add(direction));
+}
+
+function onResize(){
+  const left = window.innerWidth>680 ? 316 : 0;
+  const width = Math.max(1,window.innerWidth-left), height = Math.max(1,window.innerHeight-70);
+  camera.aspect = width/height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setViewport(left,28,width,height);
+  renderer.setScissor(left,28,width,height);
+  renderer.setScissorTest(true);
+}
+
+function clearHighlights(invalidateSearch = true){
+  if(invalidateSearch) ++searchId;
+  highlightObjects.forEach(o=>{ scene3d.remove(o); disposeModel(o); });
+  highlightObjects.length = 0;
+  labelSprites.forEach(s=>{ scene3d.remove(s); disposeModel(s); });
+  labelSprites.length = 0;
+  resultsEl.innerHTML = '';
+  $('resultCount').textContent = '00';
+  $('viewPose').textContent = '';
+  heatmapObjects.forEach(o=>{ scene3d.remove(o); disposeModel(o); });
+  heatmapObjects.length = 0;
+  matchedUnits.length = 0;
+  setDim(false);
+  statusEl.textContent = 'Highlights cleared.';
+}
+
+function toggleDim(){
+  setDim(!dimOriginal);
+}
+
+function setDim(on){
+  dimOriginal = on;
+  updateToggle('dimBtn', 'Dim scan', on);
+  const opacity = on ? 0.35 : 1;
+  glbMeshMaterials.forEach(e=>{
+    e.mat.transparent = on || e.origTransparent;
+    e.mat.opacity = on ? opacity : e.origOpacity;
+    e.mat.needsUpdate = true;
+  });
+}
+
+function clipTriangleToBox(vertices, min, max){
+  let polygon = vertices;
+  for(const axis of ['x','y','z']){
+    for(const [limit, keepAbove] of [[min[axis],true],[max[axis],false]]){
+      if(!polygon.length) return [];
+      const output = [];
+      let previous = polygon[polygon.length-1];
+      let previousInside = keepAbove ? previous[axis]>=limit : previous[axis]<=limit;
+      for(const current of polygon){
+        const currentInside = keepAbove ? current[axis]>=limit : current[axis]<=limit;
+        if(currentInside !== previousInside){
+          const fraction = (limit-previous[axis])/(current[axis]-previous[axis]);
+          output.push(previous.clone().lerp(current, fraction));
+        }
+        if(currentInside) output.push(current);
+        previous = current; previousInside = currentInside;
+      }
+      polygon = output;
+    }
+  }
+  const triangles = [];
+  for(let i=1; i<polygon.length-1; i++) triangles.push([polygon[0],polygon[i],polygon[i+1]]);
+  return triangles;
+}
+
+function applyHeatmap(){
+  if(!glbScene || matchedUnits.length===0) return;
+  glbScene.updateMatrixWorld(true);
+  const boxes = matchedUnits.map(unit=>({
+    bounds: new THREE.Box3(new THREE.Vector3(...(unit.cell_min || unit.bbox_min)),
+      new THREE.Vector3(...(unit.cell_max || unit.bbox_max))),
+    orientation: unit.orientation ?? -1,
+    center: new THREE.Vector3(...unit.center),
+    radius: Math.max(new THREE.Vector3(...unit.bbox_max).distanceTo(new THREE.Vector3(...unit.bbox_min))/2, 0.1),
+    color: unit.color
+  }));
+  // Walkthrough matches can contain many visible patches. Bucket them in world
+  // space so each source triangle only visits nearby highlight regions.
+  const buckets = new Map(), bucketSize = 1;
+  const bucketKey = (x,y,z)=>`${x},${y},${z}`;
+  boxes.forEach(box=>{
+    for(let x=Math.floor(box.bounds.min.x/bucketSize);x<=Math.floor(box.bounds.max.x/bucketSize);x++)
+      for(let y=Math.floor(box.bounds.min.y/bucketSize);y<=Math.floor(box.bounds.max.y/bucketSize);y++)
+        for(let z=Math.floor(box.bounds.min.z/bucketSize);z<=Math.floor(box.bounds.max.z/bucketSize);z++){
+          const key=bucketKey(x,y,z);
+          if(!buckets.has(key)) buckets.set(key,[]);
+          buckets.get(key).push(box);
+        }
+  });
+  const positions = [], colors = [];
+  const vertices = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const triangleBounds = new THREE.Box3();
+  const edge = new THREE.Vector3(), normal = new THREE.Vector3();
+  const fragmentEdge = new THREE.Vector3(), fragmentNormal = new THREE.Vector3();
+  glbScene.traverse(object=>{
+    if(!object.isMesh) return;
+    const position = object.geometry.attributes.position;
+    if(!position) return;
+    const index = object.geometry.index;
+    const count = index ? index.count : position.count;
+    for(let i=0; i<count; i+=3){
+      for(let j=0; j<3; j++){
+        vertices[j].fromBufferAttribute(position, index ? index.getX(i+j) : i+j).applyMatrix4(object.matrixWorld);
+      }
+      triangleBounds.setFromPoints(vertices);
+      normal.subVectors(vertices[1],vertices[0]).cross(edge.subVectors(vertices[2],vertices[0]));
+      if(normal.lengthSq()<=4e-24) continue;
+      const components = [normal.x,normal.y,normal.z];
+      let axis = 0;
+      for(let j=1;j<3;j++) if(Math.abs(components[j])>Math.abs(components[axis])) axis=j;
+      const orientation = axis*2 + (components[axis]<0 ? 1 : 0);
+      const nearby = new Set();
+      for(let x=Math.floor(triangleBounds.min.x/bucketSize);x<=Math.floor(triangleBounds.max.x/bucketSize);x++)
+        for(let y=Math.floor(triangleBounds.min.y/bucketSize);y<=Math.floor(triangleBounds.max.y/bucketSize);y++)
+          for(let z=Math.floor(triangleBounds.min.z/bucketSize);z<=Math.floor(triangleBounds.max.z/bucketSize);z++)
+            for(const box of buckets.get(bucketKey(x,y,z)) || []) nearby.add(box);
+      for(const box of nearby){
+        if(box.orientation>=0 && orientation!==box.orientation) continue;
+        if(!box.bounds.intersectsBox(triangleBounds)) continue;
+        for(const triangle of clipTriangleToBox(vertices, box.bounds.min, box.bounds.max)){
+          fragmentNormal.subVectors(triangle[1],triangle[0]).cross(fragmentEdge.subVectors(triangle[2],triangle[0]));
+          if(fragmentNormal.lengthSq()<=4e-24) continue;
+          for(const vertex of triangle){
+            positions.push(vertex.x, vertex.y, vertex.z);
+            const distance = vertex.distanceTo(box.center)/box.radius;
+            const strength = Math.max(0.18, 1-THREE.MathUtils.smoothstep(distance, 0.15, 1.5));
+            colors.push(box.color.r, box.color.g, box.color.b, strength);
+          }
+        }
+      }
+    }
+  });
+  if(!positions.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0.55,
+    side: THREE.DoubleSide, depthTest: true, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+  });
+  const overlay = new THREE.Mesh(geometry, material);
+  overlay.name = 'search-heatmap';
+  overlay.renderOrder = 2;
+  overlay.visible = heatmapVisible;
+  scene3d.add(overlay);
+  heatmapObjects.push(overlay);
+}
+
+function colorForRank(i, total){
+  const t = i / Math.max(total-1,1);
+  // Strongest matches are red; lower ranks move through yellow to blue.
+  const h = t * 0.62;
+  return new THREE.Color().setHSL(h, 0.9, 0.55);
+}
+
+function makeLabel(text, position){
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.beginPath();
+  ctx.arc(32, 32, 26, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = '#5ff';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 32, 32);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false });
+  const spr = new THREE.Sprite(mat);
+  spr.position.copy(position);
+  spr.scale.set(0.3, 0.3, 1);
+  scene3d.add(spr);
+  labelSprites.push(spr);
+  return spr;
+}
+
+function addHighlightBox(unit, rank, total){
+  const min = new THREE.Vector3(...unit.bbox_min);
+  const max = new THREE.Vector3(...unit.bbox_max);
+  const color = colorForRank(rank-1, total);
+  for(const patch of unit.patches || [unit]){
+    if(!matchedUnits.some(existing=>existing.unit_id===patch.unit_id && patch.unit_id))
+      matchedUnits.push({...patch, color:color.clone()});
+  }
+  // No arbitrary cube size, padding, or scale: use the world-space bounds
+  // of exactly the clipped surface patches selected by the indexer.
+  const helper = new THREE.Box3Helper(new THREE.Box3(min, max), color);
+  helper.material.depthTest = true;
+  helper.material.transparent = true;
+  helper.material.opacity = 0.9;
+  helper.visible = boxesVisible;
+  scene3d.add(helper);
+  helper.updateMatrixWorld(true);
+  highlightObjects.push(helper);
+  const labelPosition = new THREE.Vector3(...unit.center);
+  const normal = unit.camera ? new THREE.Vector3(...unit.camera.position).sub(labelPosition).normalize()
+    : new THREE.Vector3(...(unit.normal || [0,0,1])).normalize();
+  labelPosition.addScaledVector(normal, 0.015);
+  makeLabel(`#${rank}`, labelPosition);
+}
+
+function renderResults(results){
+  resultsEl.innerHTML = '';
+  $('resultCount').textContent = String(results.length).padStart(2, '0');
+  const header = document.createElement('div');
+  header.className = 'results-table-heading';
+  header.innerHTML = '<span>MEMORY / LOCATION</span><span>SIMILARITY</span>';
+  resultsEl.appendChild(header);
+  results.forEach((u,i)=>{
+    const d = document.createElement('div');
+    d.className = 'res' + (i===0?' active':'');
+    d.setAttribute('role', 'button');
+    d.tabIndex = 0;
+    const pose = u.camera ? `<div class="pose">EYE ${u.camera.position.map(value=>value.toFixed(2)).join(', ')} m<br>YAW ${u.camera.yaw.toFixed(1)}° / PITCH ${u.camera.pitch.toFixed(1)}°</div>` : '';
+    const image = u.image_url ? `<img class="memory-image" src="${escapeHtml(u.image_url)}" alt="Recorded first-person observation" loading="lazy">` : '';
+    d.innerHTML = `<div class="res-top"><span class="rank">${String(i+1).padStart(2,'0')}</span><span class="res-title">${escapeHtml(u.match_kind === 'visual' ? 'Recorded view' : u.surface_type)}<small>${u.facing ? escapeHtml(u.facing) : ''}</small></span><span class="sim">${u.similarity.toFixed(3)}</span></div>
+      <div class="res-meta"><span>${escapeHtml(u.unit_id)}</span><span class="loc">${u.center.map(value=>value.toFixed(1)).join(', ')} m</span></div>
+      ${pose}${image}<div class="desc">${escapeHtml(u.description)}</div>`;
+    d.querySelector('.rank').style.color = '#' + colorForRank(i, results.length).getHexString();
+    d.onclick = ()=>flyTo(u, i+1, results.length);
+    d.onkeydown = event=>{
+      if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); flyTo(u, i+1, results.length); }
+    };
+    resultsEl.appendChild(d);
+  });
+}
+
+async function doSearch(){
+  if(searchBtn.disabled) return;
+  const q = qInput.value.trim();
+  if(!q){ statusEl.textContent='Enter a query.'; return; }
+  statusEl.textContent = `Searching "${q}" …`;
+  const k = parseInt(topkSel.value,10) || 8;
+  const requestId = ++searchId;
+  const selectedScene = sceneSel.value;
+  try {
+    const res = await fetch(`${BASE}/search?q=${encodeURIComponent(q)}&k=${k}&scene=${encodeURIComponent(selectedScene)}`);
+    const data = await res.json();
+    if(requestId !== searchId || selectedScene !== sceneSel.value) return;
+    if(!res.ok) throw new Error(data.error || `Search failed (${res.status}).`);
+    if(data.scene !== selectedScene) throw new Error('Search results belong to another scene.');
+    if(data.generation !== sceneFiles.get(selectedScene)?.index?.generation){
+      await refreshScenes();
+      statusEl.textContent = 'The index changed. Search again to use the new geometry.';
+      return;
+    }
+    clearHighlights(false);
+    const top = data.results.slice();
+    top.forEach((u, i)=> addHighlightBox(u, i+1, top.length));
+    applyHeatmap();
+    renderResults(top);
+    if(top.length){
+      statusEl.textContent = data.message || (top[0].camera
+        ? `Matched memory ${top[0].unit_id} · restored position and view angle`
+        : `Top match: ${top[0].unit_id} · similarity ${top[0].similarity.toFixed(3)}`);
+      flyTo(top[0], 1, top.length);
+    } else {
+      statusEl.textContent = 'No matches.';
+    }
+  } catch(e){
+    if(requestId !== searchId || selectedScene !== sceneSel.value) return;
+    statusEl.textContent = 'Search error: ' + e.message;
+    console.error(e);
+  }
+}
+
+function surfaceFocusPose(unit){
+  const target = new THREE.Vector3(...unit.center);
+  const bounds = new THREE.Box3(new THREE.Vector3(...unit.bbox_min),new THREE.Vector3(...unit.bbox_max));
+  const radius = Math.max(bounds.getSize(new THREE.Vector3()).length()/2,.12);
+  const normal = new THREE.Vector3(...(unit.normal || [1,0,0])).normalize();
+  if(normal.lengthSq()<.001) normal.set(1,0,0);
+  const current = camera.position.clone().sub(target).normalize();
+  const side = new THREE.Vector3().crossVectors(normal,new THREE.Vector3(0,0,1));
+  if(side.lengthSq()<.001) side.set(1,0,0);
+  side.normalize();
+  const distance = Math.max(.5,radius/Math.sin(THREE.MathUtils.degToRad(22.5))*1.15);
+  const ray = new THREE.Raycaster();
+  const tolerance = bounds.clone().expandByScalar(.035);
+  const candidates = [current];
+  for(const sign of [1,-1]) for(const turn of [0,-.6,.6]){
+    const direction = normal.clone().multiplyScalar(sign).addScaledVector(side,turn);
+    if(Math.abs(normal.z)<.7) direction.z += .15;
+    candidates.push(direction.normalize());
+  }
+  glbScene?.updateMatrixWorld(true);
+  let best = null;
+  for(const direction of candidates) for(const scale of [1,.7,1.4]){
+    const position = target.clone().addScaledVector(direction,distance*scale);
+    ray.set(position,target.clone().sub(position).normalize()); ray.far = distance*scale+radius;
+    const hit = glbScene ? ray.intersectObject(glbScene,true)[0] : null;
+    // The first rendered face must be the requested patch, not another wall or
+    // furniture between it and the camera. Raycasting respects material sides.
+    if(!hit || !tolerance.containsPoint(hit.point)) continue;
+    const score = direction.dot(normal)*.1 + direction.dot(current)*.15-Math.abs(scale-1);
+    if(!best || score>best.score) best={position,target:hit.point.clone(),score};
+  }
+  return best || {position:camera.position.clone(),target};
+}
+
+function flyTo(unit, rank, total){
+  // Flush OrbitControls' accumulated damping before applying an absolute pose;
+  // otherwise the next frame rotates a restored view behind the target.
+  const damping = controls.enableDamping;
+  controls.enableDamping = false;
+  controls.update();
+  const saved = unit.camera;
+  const focus = saved ? {position:new THREE.Vector3(...saved.position),
+    target:new THREE.Vector3(...saved.position).add(new THREE.Vector3(...saved.direction))}
+    : surfaceFocusPose(unit);
+  camera.position.copy(focus.position);
+  camera.fov = THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(THREE.MathUtils.degToRad(saved?.fov || 45)/2)/Math.min(camera.aspect,1)));
+  camera.updateProjectionMatrix();
+  camera.lookAt(focus.target);
+  controls.target.copy(saved?.target ? new THREE.Vector3(...saved.target) : focus.target);
+  controls.minDistance = .1;
+  controls.maxDistance = Math.max(sceneBounds.getSize(new THREE.Vector3()).length()*3,20);
+  controls.update();
+  controls.enableDamping = damping;
+  camera.updateMatrixWorld(true);
+  $('viewPose').textContent = saved ? `EYE ${saved.position.map(value=>value.toFixed(2)).join(', ')} m · YAW ${saved.yaw.toFixed(1)}° · PITCH ${saved.pitch.toFixed(1)}°` : '';
+  if(saved) statusEl.textContent = `View ${rank}/${total} · ${unit.unit_id} · restored position and view angle`;
+  if(walkMode) syncWalkLook();
+  // highlight active row
+  [...resultsEl.children].forEach((el, idx)=>{
+    el.classList.toggle('active', idx===rank);
+    if(idx===rank){
+      const row = el.getBoundingClientRect(), list = resultsEl.getBoundingClientRect();
+      if(row.height>list.height || row.top<list.top) resultsEl.scrollTop += row.top-list.top;
+      else if(row.bottom>list.bottom) resultsEl.scrollTop += row.bottom-list.bottom;
+    }
+  });
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  const delta = Math.min(frameClock.getDelta(), 0.05);
+  if(walkMode) updateWalk(delta);
+  else controls.update();
+  renderer.render(scene3d, camera);
+}
+
+init().catch(err=>{
+  console.error('Viewer initialization failed:', err);
+  setViewerState('error', 'INIT ERROR');
+  statusEl.textContent = 'Viewer initialization failed: ' + err.message;
+});
+</script>
+</body>
+</html>
